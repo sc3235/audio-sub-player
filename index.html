@@ -1683,6 +1683,25 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       </div>
     </details>
 
+    <!-- Sync -->
+    <div class="lib-section">
+      <details class="proxy-details">
+        <summary class="lib-section-title">Sync</summary>
+        <div class="proxy-card">
+          <div class="proxy-desc">Syncs episode metadata and wordlists across devices via a private GitHub Gist. Requires a Personal Access Token with <code>gist</code> scope only — create one at github.com/settings/tokens.</div>
+          <div class="proxy-row">
+            <input class="proxy-input" id="sync-pat-input" type="password" placeholder="ghp_…" autocorrect="off" autocapitalize="none" spellcheck="false">
+            <button class="proxy-save-btn" id="sync-connect-btn">Connect</button>
+          </div>
+          <div class="proxy-status" id="sync-status"></div>
+          <div class="proxy-row" id="sync-actions" style="display:none">
+            <button class="proxy-save-btn" id="sync-now-btn" style="flex:1">Sync Now</button>
+            <button class="proxy-save-btn" id="sync-disconnect-btn">Disconnect</button>
+          </div>
+        </div>
+      </details>
+    </div>
+
     <!-- CORS Proxy -->
     <div class="lib-section">
       <details class="proxy-details">
@@ -2176,7 +2195,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       if (!currentEpisodeKey) return;
       const data = await get(currentEpisodeKey);
       if (!data) return;
-      await set(currentEpisodeKey, { ...data, ...updates });
+      await set(currentEpisodeKey, { ...data, ...updates, updatedAt: Date.now() });
     }
 
     function saveLastPosition() {
@@ -2184,7 +2203,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
     }
 
     function makeEpisodeRecord({ showName, episodeName, audioBlob = null, audioUrl = null, srt, srtUrl = null }) {
-      return { showName, episodeName, audio: audioBlob, audioOPFS: null, audioUrl, srt, srtUrl, offset: 0, lastPosition: 0, speed: 1, addedAt: Date.now(), notes: '', wordlist: [], duration: 0, isComplete: false, manual: false };
+      return { showName, episodeName, audio: audioBlob, audioOPFS: null, audioUrl, srt, srtUrl, offset: 0, lastPosition: 0, speed: 1, addedAt: Date.now(), updatedAt: Date.now(), notes: '', wordlist: [], duration: 0, isComplete: false, manual: false };
     }
 
     function mimeToExt(mime) {
@@ -2618,6 +2637,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
               if (!data) { revert(); return; }
               data.episodeName = newName;
               data.showName = newShow;
+              data.updatedAt = Date.now();
               await set(newKey, data);
               if (newKey !== ep.key) await del(ep.key);
               if (currentEpisodeKey === ep.key) {
@@ -2843,6 +2863,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
                 return;
               }
 
+              data.updatedAt = Date.now();
               await set(ep.key, data);
 
               if (currentEpisodeKey === ep.key) {
@@ -3012,6 +3033,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
               lastPosition: ep.lastPosition  ?? 0,
               speed:        ep.speed         ?? 1,
               addedAt:      ep.addedAt       ?? Date.now(),
+              updatedAt:    ep.updatedAt     ?? Date.now(),
               notes:        ep.notes         || '',
               wordlist:     ep.wordlist      || existing?.wordlist || [],
               manual:       !!ep.manual
@@ -3217,6 +3239,150 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       renderLibrary();
     });
 
+    // ── GitHub Gist Sync ──
+    const GIST_FILE = 'hibiki-library.json';
+
+    function gistAuthHeaders(pat) {
+      return {
+        'Authorization': `Bearer ${pat}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json'
+      };
+    }
+
+    async function gistConnect(pat) {
+      const res = await fetch('https://api.github.com/gists?per_page=100', { headers: gistAuthHeaders(pat) });
+      if (!res.ok) throw new Error(`GitHub API error ${res.status} — check your token`);
+      const gists = await res.json();
+      const found = gists.find(g => GIST_FILE in g.files);
+      if (found) return found.id;
+      const create = await fetch('https://api.github.com/gists', {
+        method: 'POST',
+        headers: gistAuthHeaders(pat),
+        body: JSON.stringify({
+          description: 'Hibiki library sync',
+          public: false,
+          files: { [GIST_FILE]: { content: JSON.stringify({ version: 1, episodes: {} }) } }
+        })
+      });
+      if (!create.ok) throw new Error(`Could not create Gist: ${create.status}`);
+      return (await create.json()).id;
+    }
+
+    async function syncLibrary() {
+      const pat    = await get('sync:pat');
+      const gistId = await get('sync:gistId');
+      if (!pat || !gistId) return;
+
+      setSyncStatus('Syncing…', false);
+      try {
+        // Pull remote
+        const pullRes = await fetch(`https://api.github.com/gists/${gistId}`, { headers: gistAuthHeaders(pat) });
+        if (!pullRes.ok) throw new Error(`Gist fetch failed: ${pullRes.status}`);
+        const gist = await pullRes.json();
+        const remoteContent = gist.files[GIST_FILE]?.content;
+        if (!remoteContent) throw new Error('Gist file missing');
+        const remoteEps = JSON.parse(remoteContent).episodes ?? {};
+
+        // Load local episodes
+        const allKeys = await keys();
+        const epKeys = allKeys.filter(k => typeof k === 'string' && k.startsWith('episode:'));
+        const local = {};
+        for (const k of epKeys) { const d = await get(k); if (d) local[k] = d; }
+
+        // Merge: per-episode, newer updatedAt wins; audio fields stay local-only
+        const merged = {};
+        const allEpKeys = new Set([...Object.keys(local), ...Object.keys(remoteEps)]);
+        for (const key of allEpKeys) {
+          const l = local[key], r = remoteEps[key];
+          const winner = !r ? l : !l ? r : ((l.updatedAt ?? 0) >= (r.updatedAt ?? 0) ? l : r);
+          const { audio: _a, audioOPFS: _b, ...clean } = winner;
+          merged[key] = clean;
+        }
+
+        // Write merged to local IndexedDB (restore local-only audio references)
+        for (const [key, ep] of Object.entries(merged)) {
+          const l = local[key];
+          await set(key, { ...ep, audio: l?.audio ?? null, audioOPFS: l?.audioOPFS ?? null });
+        }
+
+        // Push merged to Gist (audio fields already stripped)
+        const pushRes = await fetch(`https://api.github.com/gists/${gistId}`, {
+          method: 'PATCH',
+          headers: gistAuthHeaders(pat),
+          body: JSON.stringify({ files: { [GIST_FILE]: { content: JSON.stringify({ version: 1, syncedAt: Date.now(), episodes: merged }, null, 2) } } })
+        });
+        if (!pushRes.ok) throw new Error(`Gist push failed: ${pushRes.status}`);
+
+        await set('sync:lastSynced', Date.now());
+        renderSyncStatus();
+        renderLibrary();
+      } catch (err) {
+        setSyncStatus(`Sync failed: ${err.message}`, true);
+      }
+    }
+
+    function setSyncStatus(msg, isErr) {
+      const el = document.getElementById('sync-status');
+      if (!el) return;
+      el.textContent = msg;
+      el.className = 'proxy-status' + (isErr ? ' err' : '');
+    }
+
+    async function renderSyncStatus() {
+      const pat        = await get('sync:pat');
+      const gistId     = await get('sync:gistId');
+      const lastSynced = await get('sync:lastSynced');
+      const connected  = !!(pat && gistId);
+      const statusEl   = document.getElementById('sync-status');
+      const actionsEl  = document.getElementById('sync-actions');
+      const connectBtn = document.getElementById('sync-connect-btn');
+      const patInput   = document.getElementById('sync-pat-input');
+      if (!statusEl) return;
+      if (connected) {
+        const mins = lastSynced ? Math.round((Date.now() - lastSynced) / 60000) : null;
+        const ago  = mins === null ? 'never' : mins < 1 ? 'just now' : `${mins}m ago`;
+        statusEl.textContent = `Connected · synced ${ago}`;
+        statusEl.className   = 'proxy-status';
+        actionsEl.style.display = '';
+        connectBtn.textContent  = 'Reconnect';
+        patInput.placeholder    = '(paste new token to change)';
+        patInput.value          = '';
+      } else {
+        statusEl.textContent    = '';
+        actionsEl.style.display = 'none';
+        connectBtn.textContent  = 'Connect';
+        patInput.placeholder    = 'ghp_…';
+      }
+    }
+
+    document.getElementById('sync-connect-btn').addEventListener('click', async () => {
+      const inputPat  = document.getElementById('sync-pat-input').value.trim();
+      const storedPat = await get('sync:pat');
+      const pat = inputPat || storedPat;
+      if (!pat) { setSyncStatus('Enter a GitHub PAT.', true); return; }
+      setSyncStatus('Connecting…', false);
+      try {
+        const gistId = await gistConnect(pat);
+        await set('sync:pat', pat);
+        await set('sync:gistId', gistId);
+        await renderSyncStatus();
+        syncLibrary();
+      } catch (err) {
+        setSyncStatus(err.message, true);
+      }
+    });
+
+    document.getElementById('sync-now-btn').addEventListener('click', () => syncLibrary());
+
+    document.getElementById('sync-disconnect-btn').addEventListener('click', async () => {
+      await del('sync:pat');
+      await del('sync:gistId');
+      await del('sync:lastSynced');
+      renderSyncStatus();
+    });
+
     // ── Init ──
     navigator.storage?.persist?.();
     setupMediaSession();
@@ -3226,6 +3392,10 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
     if (_lastKey) get(_lastKey).then(d => {
       if (d) loadEpisodeFromLibrary(_lastKey);
       else localStorage.removeItem('last-episode-key');
+    });
+    renderSyncStatus();
+    get('sync:pat').then(async pat => {
+      if (pat && await get('sync:gistId')) syncLibrary();
     });
   </script>
 </body>
