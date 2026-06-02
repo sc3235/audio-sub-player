@@ -3322,7 +3322,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
         const allEpKeys = new Set([...Object.keys(local), ...Object.keys(remoteEps)]);
         for (const key of allEpKeys) {
           const l = local[key], r = remoteEps[key];
-          const winner = !r ? l : !l ? r : ((l.updatedAt ?? 0) >= (r.updatedAt ?? 0) ? l : r);
+          const winner = !r ? l : !l ? r : ((l.updatedAt ?? 0) > (r.updatedAt ?? 0) ? l : r);
           const { audio: _a, audioOPFS: _b, ...clean } = winner;
           if (clean.srtUrl) clean.srt = null; // don't store SRT text when URL is available; fetch on demand
           merged[key] = clean;
