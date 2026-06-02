@@ -1690,14 +1690,15 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       <details class="proxy-details">
         <summary class="lib-section-title">Sync</summary>
         <div class="proxy-card">
-          <div class="proxy-desc">Syncs episode metadata and wordlists across devices via a private GitHub Gist. Requires a Personal Access Token with <code>gist</code> scope only — create one at github.com/settings/tokens.</div>
-          <div style="display:grid; grid-template-columns: 1fr auto; gap: 0.5rem;">
+          <div class="proxy-desc">Backup and restore library metadata and wordlists via a private GitHub Gist. Requires a Personal Access Token with <code>gist</code> scope — create one at github.com/settings/tokens.</div>
+          <div style="display:grid; grid-template-columns:1fr auto auto; gap:0.5rem; align-items:center;">
             <input class="proxy-input" id="sync-pat-input" type="password" placeholder="ghp_…" autocorrect="off" autocapitalize="none" spellcheck="false">
-            <button class="proxy-save-btn" id="sync-connect-btn">Connect</button>
-            <div id="sync-actions" style="display:none">
-              <button class="proxy-save-btn" id="sync-now-btn" style="width:100%">Sync Now</button>
-            </div>
-            <button class="proxy-save-btn" id="sync-disconnect-btn" style="display:none">Disconnect</button>
+            <button class="proxy-save-btn" id="sync-connect-btn" title="Connect to GitHub Gist">⇌</button>
+            <button class="proxy-save-btn" id="sync-disconnect-btn" title="Disconnect" style="display:none">✕</button>
+          </div>
+          <div id="sync-actions" style="display:none; gap:0.5rem; margin-top:0.5rem;">
+            <button class="proxy-save-btn" id="sync-upload-btn" style="flex:1">↑ Upload to Gist</button>
+            <button class="proxy-save-btn" id="sync-download-btn" style="flex:1">↓ Download from Gist</button>
           </div>
           <div class="proxy-status" id="sync-status"></div>
         </div>
@@ -3252,7 +3253,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       renderLibrary();
     });
 
-    // ── GitHub Gist Sync ──
+    // ── GitHub Gist Backup/Restore ──
     const GIST_FILE = 'hibiki-library.json';
 
     function gistAuthHeaders(pat) {
@@ -3274,7 +3275,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
         method: 'POST',
         headers: gistAuthHeaders(pat),
         body: JSON.stringify({
-          description: 'Hibiki library sync',
+          description: 'Hibiki library backup',
           public: false,
           files: { [GIST_FILE]: { content: JSON.stringify({ version: 1, episodes: {} }) } }
         })
@@ -3283,70 +3284,103 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       return (await create.json()).id;
     }
 
-    async function syncLibrary() {
+    async function fetchGistEpisodes(pat, gistId) {
+      const res = await fetch(`https://api.github.com/gists/${gistId}`, { headers: gistAuthHeaders(pat) });
+      if (!res.ok) throw new Error(`Gist fetch failed: ${res.status}`);
+      const gist = await res.json();
+      const file = gist.files[GIST_FILE];
+      if (!file) return {};
+      let content;
+      if (file.truncated) {
+        try {
+          const raw = await fetch(file.raw_url, { headers: { 'Authorization': `Bearer ${pat}` } });
+          content = raw.ok ? await raw.text() : '{"episodes":{}}';
+        } catch { content = '{"episodes":{}}'; }
+      } else {
+        content = file.content;
+      }
+      return JSON.parse(content).episodes ?? {};
+    }
+
+    async function fetchLocalEpisodes() {
+      const allKeys = await keys();
+      const epKeys = allKeys.filter(k => typeof k === 'string' && k.startsWith('episode:'));
+      const local = {};
+      for (const k of epKeys) { const d = await get(k); if (d) local[k] = d; }
+      return local;
+    }
+
+    function epDisplayName(ep) {
+      if (!ep) return '(unknown)';
+      return (ep.showName && ep.episodeName) ? `${ep.showName} · ${ep.episodeName}` : (ep.episodeName || ep.showName || '(unknown)');
+    }
+
+    function buildConfirmMsg(heading, toAdd, toRemove) {
+      const lines = [heading, ''];
+      if (toAdd.length === 0 && toRemove.length === 0) {
+        lines.push('No changes.');
+      } else {
+        toAdd.forEach(n => lines.push(`+  ${n}`));
+        toRemove.forEach(n => lines.push(`−  ${n}`));
+      }
+      lines.push('', 'Proceed?');
+      return lines.join('\n');
+    }
+
+    async function uploadToGist() {
       const pat    = await get('sync:pat');
       const gistId = await get('sync:gistId');
       if (!pat || !gistId) return;
-
-      setSyncStatus('Syncing…', false);
+      setSyncStatus('Preparing…', false);
       try {
-        // Pull remote
-        const pullRes = await fetch(`https://api.github.com/gists/${gistId}`, { headers: gistAuthHeaders(pat) });
-        if (!pullRes.ok) throw new Error(`Gist fetch failed: ${pullRes.status}`);
-        const gist = await pullRes.json();
-        const gistFile = gist.files[GIST_FILE];
-        if (!gistFile) throw new Error('Gist file missing');
-        let remoteContent;
-        if (gistFile.truncated) {
-          try {
-            const rawRes = await fetch(gistFile.raw_url, { headers: { 'Authorization': `Bearer ${pat}` } });
-            if (!rawRes.ok) throw new Error('HTTP ' + rawRes.status);
-            remoteContent = await rawRes.text();
-          } catch {
-            // raw_url inaccessible (CORS) — overwrite Gist with local data to recover
-            remoteContent = '{"version":1,"episodes":{}}';
-          }
-        } else {
-          remoteContent = gistFile.content;
+        const [remoteEps, local] = await Promise.all([fetchGistEpisodes(pat, gistId), fetchLocalEpisodes()]);
+        const toAdd    = Object.keys(local).filter(k => !remoteEps[k]).map(k => epDisplayName(local[k]));
+        const toRemove = Object.keys(remoteEps).filter(k => !local[k]).map(k => epDisplayName(remoteEps[k]));
+        if (!confirm(buildConfirmMsg('Upload local library → Gist:', toAdd, toRemove))) { setSyncStatus('', false); return; }
+        const episodes = {};
+        for (const [key, ep] of Object.entries(local)) {
+          const { audio: _a, audioOPFS: _b, ...clean } = ep;
+          if (clean.srtUrl) clean.srt = null;
+          episodes[key] = clean;
         }
-        const remoteEps = JSON.parse(remoteContent).episodes ?? {};
-
-        // Load local episodes
-        const allKeys = await keys();
-        const epKeys = allKeys.filter(k => typeof k === 'string' && k.startsWith('episode:'));
-        const local = {};
-        for (const k of epKeys) { const d = await get(k); if (d) local[k] = d; }
-
-        // Merge: per-episode, newer updatedAt wins; audio fields stay local-only
-        const merged = {};
-        const allEpKeys = new Set([...Object.keys(local), ...Object.keys(remoteEps)]);
-        for (const key of allEpKeys) {
-          const l = local[key], r = remoteEps[key];
-          const winner = !r ? l : !l ? r : ((l.updatedAt ?? 0) > (r.updatedAt ?? 0) ? l : r);
-          const { audio: _a, audioOPFS: _b, ...clean } = winner;
-          if (clean.srtUrl) clean.srt = null; // don't store SRT text when URL is available; fetch on demand
-          merged[key] = clean;
-        }
-
-        // Write merged to local IndexedDB (restore local-only audio references)
-        for (const [key, ep] of Object.entries(merged)) {
-          const l = local[key];
-          await set(key, { ...ep, audio: l?.audio ?? null, audioOPFS: l?.audioOPFS ?? null, srt: l?.srt || ep.srt || '' });
-        }
-
-        // Push merged to Gist (audio fields already stripped)
-        const pushRes = await fetch(`https://api.github.com/gists/${gistId}`, {
+        const res = await fetch(`https://api.github.com/gists/${gistId}`, {
           method: 'PATCH',
           headers: gistAuthHeaders(pat),
-          body: JSON.stringify({ files: { [GIST_FILE]: { content: JSON.stringify({ version: 1, syncedAt: Date.now(), episodes: merged }, null, 2) } } })
+          body: JSON.stringify({ files: { [GIST_FILE]: { content: JSON.stringify({ version: 1, savedAt: Date.now(), episodes }, null, 2) } } })
         });
-        if (!pushRes.ok) throw new Error(`Gist push failed: ${pushRes.status}`);
+        if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+        await set('sync:lastSynced', Date.now());
+        renderSyncStatus();
+      } catch (err) {
+        setSyncStatus(`Upload failed: ${err.message}`, true);
+      }
+    }
 
+    async function downloadFromGist() {
+      const pat    = await get('sync:pat');
+      const gistId = await get('sync:gistId');
+      if (!pat || !gistId) return;
+      setSyncStatus('Preparing…', false);
+      try {
+        const [remoteEps, local] = await Promise.all([fetchGistEpisodes(pat, gistId), fetchLocalEpisodes()]);
+        const toAdd    = Object.keys(remoteEps).filter(k => !local[k]).map(k => epDisplayName(remoteEps[k]));
+        const toRemove = Object.keys(local).filter(k => !remoteEps[k]).map(k => epDisplayName(local[k]));
+        if (!confirm(buildConfirmMsg('Download Gist → local library:', toAdd, toRemove))) { setSyncStatus('', false); return; }
+        for (const key of Object.keys(local).filter(k => !remoteEps[k])) {
+          const ep = local[key];
+          if (ep?.audioOPFS) await opfsDelete(ep.audioOPFS);
+          await del(key);
+          if (currentEpisodeKey === key) unloadEpisode();
+        }
+        for (const [key, ep] of Object.entries(remoteEps)) {
+          const existing = local[key];
+          await set(key, { ...ep, audio: existing?.audio ?? null, audioOPFS: existing?.audioOPFS ?? null, srt: existing?.srt || ep.srt || '' });
+        }
         await set('sync:lastSynced', Date.now());
         renderSyncStatus();
         renderLibrary();
       } catch (err) {
-        setSyncStatus(`Sync failed: ${err.message}`, true);
+        setSyncStatus(`Download failed: ${err.message}`, true);
       }
     }
 
@@ -3362,27 +3396,24 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       const gistId     = await get('sync:gistId');
       const lastSynced = await get('sync:lastSynced');
       const connected  = !!(pat && gistId);
-      const statusEl   = document.getElementById('sync-status');
+      const statusEl     = document.getElementById('sync-status');
       const actionsEl    = document.getElementById('sync-actions');
       const disconnectEl = document.getElementById('sync-disconnect-btn');
-      const connectBtn   = document.getElementById('sync-connect-btn');
       const patInput     = document.getElementById('sync-pat-input');
       if (!statusEl) return;
       if (connected) {
         const mins = lastSynced ? Math.round((Date.now() - lastSynced) / 60000) : null;
         const ago  = mins === null ? 'never' : mins < 1 ? 'just now' : `${mins}m ago`;
-        statusEl.textContent      = `Connected · synced ${ago}`;
-        statusEl.className        = 'proxy-status';
-        actionsEl.style.display   = '';
+        statusEl.textContent       = `Connected · ${ago}`;
+        statusEl.className         = 'proxy-status';
+        actionsEl.style.display    = 'flex';
         disconnectEl.style.display = '';
-        connectBtn.textContent    = 'Reconnect';
-        patInput.placeholder      = '(paste new token to change)';
-        patInput.value            = '';
+        patInput.placeholder       = '(paste new token to change)';
+        patInput.value             = '';
       } else {
         statusEl.textContent       = '';
         actionsEl.style.display    = 'none';
         disconnectEl.style.display = 'none';
-        connectBtn.textContent     = 'Connect';
         patInput.placeholder       = 'ghp_…';
       }
     }
@@ -3392,22 +3423,23 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       const storedPat = await get('sync:pat');
       const pat = inputPat || storedPat;
       if (!pat) { setSyncStatus('Enter a GitHub PAT.', true); return; }
+      if (!confirm(inputPat ? 'Connect to GitHub Gist for library backup?' : 'Reconnect to GitHub Gist?')) return;
       setSyncStatus('Connecting…', false);
       try {
         const gistId = await gistConnect(pat);
         await set('sync:pat', pat);
         await set('sync:gistId', gistId);
         await renderSyncStatus();
-        syncLibrary();
       } catch (err) {
         setSyncStatus(err.message, true);
       }
     });
 
-    document.getElementById('sync-now-btn').addEventListener('click', () => syncLibrary());
+    document.getElementById('sync-upload-btn').addEventListener('click', () => uploadToGist());
+    document.getElementById('sync-download-btn').addEventListener('click', () => downloadFromGist());
 
     document.getElementById('sync-disconnect-btn').addEventListener('click', async () => {
-      if (!confirm('Disconnect sync? Your local library is unaffected.')) return;
+      if (!confirm('Disconnect? Your local library is unaffected.')) return;
       await del('sync:pat');
       await del('sync:gistId');
       await del('sync:lastSynced');
@@ -3425,9 +3457,6 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       else localStorage.removeItem('last-episode-key');
     });
     renderSyncStatus();
-    get('sync:pat').then(async pat => {
-      if (pat && await get('sync:gistId')) syncLibrary();
-    });
   </script>
 </body>
 </html>
