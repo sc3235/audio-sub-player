@@ -3283,8 +3283,16 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
         const pullRes = await fetch(`https://api.github.com/gists/${gistId}`, { headers: gistAuthHeaders(pat) });
         if (!pullRes.ok) throw new Error(`Gist fetch failed: ${pullRes.status}`);
         const gist = await pullRes.json();
-        const remoteContent = gist.files[GIST_FILE]?.content;
-        if (!remoteContent) throw new Error('Gist file missing');
+        const gistFile = gist.files[GIST_FILE];
+        if (!gistFile) throw new Error('Gist file missing');
+        let remoteContent;
+        if (gistFile.truncated) {
+          const rawRes = await fetch(gistFile.raw_url, { headers: gistAuthHeaders(pat) });
+          if (!rawRes.ok) throw new Error(`Gist raw fetch failed: ${rawRes.status}`);
+          remoteContent = await rawRes.text();
+        } else {
+          remoteContent = gistFile.content;
+        }
         const remoteEps = JSON.parse(remoteContent).episodes ?? {};
 
         // Load local episodes
