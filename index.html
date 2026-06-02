@@ -2318,7 +2318,18 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       syncSpeedDisplay();
       setManualMode(!!data.manual, false);
 
-      subs = parseSRT(data.srt);
+      let srtText = data.srt;
+      if (!srtText && data.srtUrl) {
+        try {
+          const srtRes = await fetch(data.srtUrl);
+          if (srtRes.ok) {
+            srtText = await srtRes.text();
+            data.srt = srtText;
+            await set(key, data);
+          }
+        } catch (e) {}
+      }
+      subs = parseSRT(srtText || '');
       currentIdx = -1;
       renderSubList();
 
@@ -3287,7 +3298,8 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
         if (!gistFile) throw new Error('Gist file missing');
         let remoteContent;
         if (gistFile.truncated) {
-          const rawRes = await fetch(gistFile.raw_url, { headers: gistAuthHeaders(pat) });
+          // gist.githubusercontent.com requires minimal headers for CORS
+          const rawRes = await fetch(gistFile.raw_url, { headers: { 'Authorization': `Bearer ${pat}` } });
           if (!rawRes.ok) throw new Error(`Gist raw fetch failed: ${rawRes.status}`);
           remoteContent = await rawRes.text();
         } else {
@@ -3308,13 +3320,14 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
           const l = local[key], r = remoteEps[key];
           const winner = !r ? l : !l ? r : ((l.updatedAt ?? 0) >= (r.updatedAt ?? 0) ? l : r);
           const { audio: _a, audioOPFS: _b, ...clean } = winner;
+          if (clean.srtUrl) clean.srt = null; // don't store SRT text when URL is available; fetch on demand
           merged[key] = clean;
         }
 
         // Write merged to local IndexedDB (restore local-only audio references)
         for (const [key, ep] of Object.entries(merged)) {
           const l = local[key];
-          await set(key, { ...ep, audio: l?.audio ?? null, audioOPFS: l?.audioOPFS ?? null });
+          await set(key, { ...ep, audio: l?.audio ?? null, audioOPFS: l?.audioOPFS ?? null, srt: l?.srt || ep.srt || '' });
         }
 
         // Push merged to Gist (audio fields already stripped)
