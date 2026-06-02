@@ -1691,15 +1691,15 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
         <summary class="lib-section-title">Sync</summary>
         <div class="proxy-card">
           <div class="proxy-desc">Syncs episode metadata and wordlists across devices via a private GitHub Gist. Requires a Personal Access Token with <code>gist</code> scope only — create one at github.com/settings/tokens.</div>
-          <div class="proxy-row">
+          <div style="display:grid; grid-template-columns: 1fr auto; gap: 0.5rem;">
             <input class="proxy-input" id="sync-pat-input" type="password" placeholder="ghp_…" autocorrect="off" autocapitalize="none" spellcheck="false">
             <button class="proxy-save-btn" id="sync-connect-btn">Connect</button>
+            <div id="sync-actions" style="display:none">
+              <button class="proxy-save-btn" id="sync-now-btn" style="width:100%">Sync Now</button>
+            </div>
+            <button class="proxy-save-btn" id="sync-disconnect-btn" style="display:none">Disconnect</button>
           </div>
           <div class="proxy-status" id="sync-status"></div>
-          <div class="proxy-row" id="sync-actions" style="display:none">
-            <button class="proxy-save-btn" id="sync-now-btn" style="flex:1">Sync Now</button>
-            <button class="proxy-save-btn" id="sync-disconnect-btn" style="flex:1">Disconnect</button>
-          </div>
         </div>
       </details>
     </div>
@@ -3363,24 +3363,27 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       const lastSynced = await get('sync:lastSynced');
       const connected  = !!(pat && gistId);
       const statusEl   = document.getElementById('sync-status');
-      const actionsEl  = document.getElementById('sync-actions');
-      const connectBtn = document.getElementById('sync-connect-btn');
-      const patInput   = document.getElementById('sync-pat-input');
+      const actionsEl    = document.getElementById('sync-actions');
+      const disconnectEl = document.getElementById('sync-disconnect-btn');
+      const connectBtn   = document.getElementById('sync-connect-btn');
+      const patInput     = document.getElementById('sync-pat-input');
       if (!statusEl) return;
       if (connected) {
         const mins = lastSynced ? Math.round((Date.now() - lastSynced) / 60000) : null;
         const ago  = mins === null ? 'never' : mins < 1 ? 'just now' : `${mins}m ago`;
-        statusEl.textContent = `Connected · synced ${ago}`;
-        statusEl.className   = 'proxy-status';
-        actionsEl.style.display = '';
-        connectBtn.textContent  = 'Reconnect';
-        patInput.placeholder    = '(paste new token to change)';
-        patInput.value          = '';
+        statusEl.textContent      = `Connected · synced ${ago}`;
+        statusEl.className        = 'proxy-status';
+        actionsEl.style.display   = '';
+        disconnectEl.style.display = '';
+        connectBtn.textContent    = 'Reconnect';
+        patInput.placeholder      = '(paste new token to change)';
+        patInput.value            = '';
       } else {
-        statusEl.textContent    = '';
-        actionsEl.style.display = 'none';
-        connectBtn.textContent  = 'Connect';
-        patInput.placeholder    = 'ghp_…';
+        statusEl.textContent       = '';
+        actionsEl.style.display    = 'none';
+        disconnectEl.style.display = 'none';
+        connectBtn.textContent     = 'Connect';
+        patInput.placeholder       = 'ghp_…';
       }
     }
 
@@ -3404,6 +3407,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
     document.getElementById('sync-now-btn').addEventListener('click', () => syncLibrary());
 
     document.getElementById('sync-disconnect-btn').addEventListener('click', async () => {
+      if (!confirm('Disconnect sync? Your local library is unaffected.')) return;
       await del('sync:pat');
       await del('sync:gistId');
       await del('sync:lastSynced');
