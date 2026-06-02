@@ -755,8 +755,10 @@
     summary.lib-section-title::-webkit-details-marker { display: none; }
     summary.lib-section-title::before { content: '▸  '; }
     details[open] > summary.lib-section-title::before { content: '▾  '; }
-    details.lib-section > summary.lib-section-title { margin-bottom: 0; }
-    details[open].lib-section > summary.lib-section-title { margin-bottom: 0.875rem; }
+    details.lib-section > summary.lib-section-title,
+    .lib-section .proxy-details > summary.lib-section-title { margin-bottom: 0; }
+    details[open].lib-section > summary.lib-section-title,
+    .lib-section .proxy-details[open] > summary.lib-section-title { margin-bottom: 0.875rem; }
 
     /* Quick Import */
     .quick-import {
