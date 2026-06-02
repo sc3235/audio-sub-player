@@ -3298,10 +3298,14 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
         if (!gistFile) throw new Error('Gist file missing');
         let remoteContent;
         if (gistFile.truncated) {
-          // gist.githubusercontent.com requires minimal headers for CORS
-          const rawRes = await fetch(gistFile.raw_url, { headers: { 'Authorization': `Bearer ${pat}` } });
-          if (!rawRes.ok) throw new Error(`Gist raw fetch failed: ${rawRes.status}`);
-          remoteContent = await rawRes.text();
+          try {
+            const rawRes = await fetch(gistFile.raw_url, { headers: { 'Authorization': `Bearer ${pat}` } });
+            if (!rawRes.ok) throw new Error('HTTP ' + rawRes.status);
+            remoteContent = await rawRes.text();
+          } catch {
+            // raw_url inaccessible (CORS) — overwrite Gist with local data to recover
+            remoteContent = '{"version":1,"episodes":{}}';
+          }
         } else {
           remoteContent = gistFile.content;
         }
