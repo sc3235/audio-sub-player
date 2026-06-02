@@ -1690,7 +1690,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       <details class="proxy-details">
         <summary class="lib-section-title">Sync</summary>
         <div class="proxy-card">
-          <div class="proxy-desc">Backup and restore library metadata and wordlists via a private GitHub Gist. Requires a Personal Access Token with <code>gist</code> scope — create one at github.com/settings/tokens.</div>
+          <div class="proxy-desc">Private GitHub Gist used to backup and restore library metadata and wordlists. Create a Personal Access Token with <code>gist</code> scope at github.com/settings/tokens, then paste the token here.</div>
           <div style="display:grid; grid-template-columns:1fr auto auto; gap:0.5rem; align-items:center;">
             <input class="proxy-input" id="sync-pat-input" type="password" placeholder="ghp_…" autocorrect="off" autocapitalize="none" spellcheck="false">
             <button class="proxy-save-btn" id="sync-connect-btn" title="Connect">⇌</button>
@@ -1710,7 +1710,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       <details class="proxy-details">
         <summary class="lib-section-title">CORS Proxy</summary>
         <div class="proxy-card">
-          <div class="proxy-desc">Need CORS proxy to download audio from CDNs that do not send CORS headers. Deploy <code>cloudflare-worker/index.js</code> to Cloudflare Workers (free), then paste the worker URL here.</div>
+          <div class="proxy-desc">CORS proxy used to download audio from CDNs that do not send CORS headers. Deploy <code>cloudflare-worker/index.js</code> to Cloudflare Workers (free), then paste the worker URL here.</div>
           <div class="proxy-row">
             <input class="proxy-input" id="proxy-input" type="url" placeholder="https://your-worker.workers.dev" autocorrect="off" autocapitalize="none" spellcheck="false">
             <button class="proxy-save-btn" id="proxy-save-btn">Save</button>
