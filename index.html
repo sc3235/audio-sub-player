@@ -1693,12 +1693,12 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
           <div class="proxy-desc">Backup and restore library metadata and wordlists via a private GitHub Gist. Requires a Personal Access Token with <code>gist</code> scope — create one at github.com/settings/tokens.</div>
           <div style="display:grid; grid-template-columns:1fr auto auto; gap:0.5rem; align-items:center;">
             <input class="proxy-input" id="sync-pat-input" type="password" placeholder="ghp_…" autocorrect="off" autocapitalize="none" spellcheck="false">
-            <button class="proxy-save-btn" id="sync-connect-btn" title="Connect to GitHub Gist">⇌</button>
+            <button class="proxy-save-btn" id="sync-connect-btn" title="Connect">⇌</button>
             <button class="proxy-save-btn" id="sync-disconnect-btn" title="Disconnect" style="display:none">✕</button>
           </div>
           <div id="sync-actions" style="display:none; gap:0.5rem; margin-top:0.5rem;">
-            <button class="proxy-save-btn" id="sync-upload-btn" style="flex:1">↑ Upload to Gist</button>
-            <button class="proxy-save-btn" id="sync-download-btn" style="flex:1">↓ Download from Gist</button>
+            <button class="proxy-save-btn" id="sync-upload-btn" style="flex:1">↑ Upload</button>
+            <button class="proxy-save-btn" id="sync-download-btn" style="flex:1">↓ Download</button>
           </div>
           <div class="proxy-status" id="sync-status"></div>
         </div>
@@ -3402,8 +3402,24 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       const patInput     = document.getElementById('sync-pat-input');
       if (!statusEl) return;
       if (connected) {
-        const mins = lastSynced ? Math.round((Date.now() - lastSynced) / 60000) : null;
-        const ago  = mins === null ? 'never' : mins < 1 ? 'just now' : `${mins}m ago`;
+        const diffMs = lastSynced ? Date.now() - lastSynced : null;
+        let ago;
+        if (diffMs === null) {
+          ago = 'never';
+        } else {
+          const secs  = Math.round(diffMs / 1000);
+          const mins  = Math.round(diffMs / 60000);
+          const hours = Math.round(diffMs / 3600000);
+          const days  = Math.round(diffMs / 86400000);
+          const months = Math.round(diffMs / (86400000 * 30.44));
+          const years  = Math.round(diffMs / (86400000 * 365.25));
+          if (secs < 60)        ago = 'just now';
+          else if (mins < 60)   ago = `${mins}m ago`;
+          else if (hours < 24)  ago = `${hours}h ago`;
+          else if (days < 30)   ago = `${days}d ago`;
+          else if (months < 12) ago = `${months}mo ago`;
+          else                  ago = `${years}y ago`;
+        }
         statusEl.textContent       = `Connected · ${ago}`;
         statusEl.className         = 'proxy-status';
         actionsEl.style.display    = 'flex';
