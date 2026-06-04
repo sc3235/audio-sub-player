@@ -3318,13 +3318,14 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       return (ep.showName && ep.episodeName) ? `${ep.showName} · ${ep.episodeName}` : (ep.episodeName || ep.showName || '(unknown)');
     }
 
-    function buildConfirmMsg(heading, toAdd, toRemove) {
+    function buildConfirmMsg(heading, toAdd, toRemove, toUpdate) {
       const lines = [heading, ''];
-      if (toAdd.length === 0 && toRemove.length === 0) {
+      if (toAdd.length === 0 && toRemove.length === 0 && (!toUpdate || toUpdate.length === 0)) {
         lines.push('No changes.');
       } else {
         toAdd.forEach(n => lines.push(`+  ${n}`));
         toRemove.forEach(n => lines.push(`−  ${n}`));
+        if (toUpdate) toUpdate.forEach(n => lines.push(`~  ${n}`));
       }
       lines.push('', 'Proceed?');
       return lines.join('\n');
@@ -3339,7 +3340,8 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
         const [remoteEps, local] = await Promise.all([fetchGistEpisodes(pat, gistId), fetchLocalEpisodes()]);
         const toAdd    = Object.keys(local).filter(k => !remoteEps[k]).map(k => epDisplayName(local[k]));
         const toRemove = Object.keys(remoteEps).filter(k => !local[k]).map(k => epDisplayName(remoteEps[k]));
-        if (!confirm(buildConfirmMsg('Upload local library → Gist:', toAdd, toRemove))) { setSyncStatus('', false); return; }
+        const toUpdate = Object.keys(local).filter(k => remoteEps[k] && (local[k].updatedAt ?? 0) > (remoteEps[k].updatedAt ?? 0)).map(k => epDisplayName(local[k]));
+        if (!confirm(buildConfirmMsg('Upload local library → Gist:', toAdd, toRemove, toUpdate))) { setSyncStatus('', false); return; }
         const episodes = {};
         for (const [key, ep] of Object.entries(local)) {
           const { audio: _a, audioOPFS: _b, ...clean } = ep;
