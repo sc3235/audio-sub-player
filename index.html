@@ -712,6 +712,109 @@
       animation: pin-flash-pulse 0.5s ease-out;
     }
 
+    /* ── Search bar ── */
+    .search-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.55rem 0.6rem;
+      margin-bottom: 0.6rem;
+    }
+    .search-toggle-btn {
+      flex-shrink: 0;
+      padding: 0.3rem 0.65rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.52rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .search-toggle-btn.on {
+      background: var(--accent-a10);
+      border-color: var(--accent-a40);
+      color: var(--accent);
+    }
+    .search-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.5rem;
+    }
+    .search-input {
+      flex: 1;
+      min-width: 0;
+      height: 38px;
+      padding: 0 0.7rem;
+      background: var(--bg);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.12s;
+      -webkit-tap-highlight-color: transparent;
+      appearance: none;
+    }
+    .search-input:focus { border-color: var(--accent-a40); }
+    .search-input:disabled { opacity: 0.38; }
+    .search-go-btn {
+      flex-shrink: 0;
+      height: 38px;
+      padding: 0 0.8rem;
+      background: var(--accent-a10);
+      border: 1px solid var(--accent-a28);
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.12s;
+    }
+    .search-go-btn:active { background: var(--accent-a28); }
+    .search-go-btn:disabled, .search-nav-btn:disabled { opacity: 0.35; cursor: default; }
+    .search-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.58rem;
+      color: var(--text-3);
+      min-width: 3rem;
+      text-align: center;
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+    }
+    .search-nav-btn {
+      flex-shrink: 0;
+      width: 34px;
+      height: 38px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: var(--text-2);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.12s, border-color 0.12s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .search-nav-btn:active { background: var(--accent-a10); border-color: var(--accent-a40); color: var(--accent); }
+    .sub-text mark.srch {
+      background: rgba(255, 195, 0, 0.3);
+      border-radius: 2px;
+      color: inherit;
+      padding: 0 1px;
+    }
+
     /* ── Post-offset timestamp annotation ── */
     .sub-time-post {
       color: var(--green);
@@ -1516,6 +1619,17 @@
       <div class="audio-err" id="audio-err" style="display:none"></div>
     </div>
 
+    <div class="search-bar" id="search-bar">
+      <button class="search-toggle-btn" id="search-toggle-btn">Search</button>
+      <div class="search-controls" id="search-controls" style="display:none">
+        <input class="search-input" id="search-input" type="text" placeholder="search subs…" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+        <button class="search-go-btn" id="search-go-btn">Go</button>
+        <span class="search-count" id="search-count"></span>
+        <button class="search-nav-btn" id="search-prev-hit">▲</button>
+        <button class="search-nav-btn" id="search-next-hit">▼</button>
+      </div>
+    </div>
+
     <div class="subtitle-wrap">
       <div class="subtitle-scroll" id="subtitle-scroll"></div>
       <div class="fade-top"></div>
@@ -1763,6 +1877,11 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
     let navLock = -1, navLockExpiry = 0; // prevent timeupdate from undoing a manual seek (float/codec snap)
     let autoPauseFiredFor = -1; // index of the last sub that triggered auto-pause; reset on any sub change
 
+    let searchQuery     = '';
+    let searchHits      = []; // sub indices matching current query
+    let searchHitCursor = -1;
+    let searchOpen      = false;
+
     // ── DOM refs ──
     const audio       = document.getElementById('audio');
     const audioErr    = document.getElementById('audio-err');
@@ -1770,6 +1889,14 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
     const playBtn     = document.getElementById('play-btn');
     const scrubber    = document.getElementById('sub-scrubber');
     const scrubThumb  = document.getElementById('sub-scrubber-thumb');
+
+    const searchToggleBtn = document.getElementById('search-toggle-btn');
+    const searchControls  = document.getElementById('search-controls');
+    const searchInput     = document.getElementById('search-input');
+    const searchGoBtn     = document.getElementById('search-go-btn');
+    const searchCount     = document.getElementById('search-count');
+    const searchPrevBtn   = document.getElementById('search-prev-hit');
+    const searchNextBtn   = document.getElementById('search-next-hit');
 
     audio.addEventListener('error', () => {
       // When audio.src is unset, browsers resolve it to the page URL — ignore those errors.
@@ -1846,6 +1973,25 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       renderSubList();
     }
 
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function buildHighlightedHTML(rawText, query) {
+      if (!query) return escapeHtml(rawText);
+      const lo = rawText.toLowerCase();
+      const lq = query.toLowerCase();
+      let out = '', pos = 0;
+      while (pos < rawText.length) {
+        const hit = lo.indexOf(lq, pos);
+        if (hit === -1) { out += escapeHtml(rawText.slice(pos)); break; }
+        out += escapeHtml(rawText.slice(pos, hit));
+        out += '<mark class="srch">' + escapeHtml(rawText.slice(hit, hit + query.length)) + '</mark>';
+        pos = hit + query.length;
+      }
+      return out;
+    }
+
     // ── Render subtitle list ──
     function renderSubList() {
       scroll.innerHTML = '';
@@ -1883,7 +2029,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
 
         const text = document.createElement('div');
         text.className = 'sub-text';
-        text.textContent = sub.text;
+        text.innerHTML = buildHighlightedHTML(sub.text, searchQuery);
 
         const pin = document.createElement('div');
         pin.className = 'sub-pin';
@@ -2032,6 +2178,82 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
     audio.addEventListener('pause', () => { playBtn.textContent = '▶'; document.body.classList.add('audio-paused'); saveLastPosition(); });
     audio.addEventListener('ended', () => { playBtn.textContent = '▶'; document.body.classList.add('audio-paused'); patchEpisode({ lastPosition: audio.currentTime, speed: audio.playbackRate, isComplete: true }); });
     audio.addEventListener('loadedmetadata', () => { if (audio.duration && isFinite(audio.duration)) patchEpisode({ duration: audio.duration }); });
+
+    // ── Search ──
+    function applySearchHighlights() {
+      scroll.querySelectorAll('.sub-item').forEach(item => {
+        const sub = subs[+item.dataset.idx];
+        if (sub) item.querySelector('.sub-text').innerHTML = buildHighlightedHTML(sub.text, searchQuery);
+      });
+    }
+
+    function updateSearchCount() {
+      if (!searchQuery) { searchCount.textContent = ''; return; }
+      searchCount.textContent = searchHits.length === 0 ? '0 hits' : `${searchHitCursor + 1}/${searchHits.length}`;
+    }
+
+    function doSearch() {
+      if (!audio.paused) return;
+      const q = searchInput.value.trim();
+      searchQuery = q;
+      if (!q) {
+        searchHits = []; searchHitCursor = -1;
+        applySearchHighlights(); updateSearchCount(); return;
+      }
+      const lq = q.toLowerCase();
+      searchHits = subs.reduce((acc, sub, i) => { if (sub.text.toLowerCase().includes(lq)) acc.push(i); return acc; }, []);
+      if (searchHits.length) {
+        const ref = currentIdx >= 0 ? currentIdx : 0;
+        let best = 0, bestDist = Math.abs(searchHits[0] - ref);
+        for (let i = 1; i < searchHits.length; i++) {
+          const d = Math.abs(searchHits[i] - ref);
+          if (d < bestDist) { bestDist = d; best = i; }
+        }
+        searchHitCursor = best;
+        jumpToSub(searchHits[searchHitCursor]);
+      } else {
+        searchHitCursor = -1;
+      }
+      applySearchHighlights();
+      updateSearchCount();
+    }
+
+    function searchNav(dir) {
+      if (!searchHits.length || !audio.paused) return;
+      searchHitCursor = (searchHitCursor + dir + searchHits.length) % searchHits.length;
+      updateSearchCount();
+      jumpToSub(searchHits[searchHitCursor]);
+    }
+
+    function setSearchEnabled(enabled) {
+      searchInput.disabled   = !enabled;
+      searchGoBtn.disabled   = !enabled;
+      searchPrevBtn.disabled = !enabled;
+      searchNextBtn.disabled = !enabled;
+    }
+
+    searchToggleBtn.addEventListener('click', () => {
+      searchOpen = !searchOpen;
+      searchControls.style.display = searchOpen ? '' : 'none';
+      searchToggleBtn.classList.toggle('on', searchOpen);
+      if (searchOpen) {
+        setSearchEnabled(audio.paused);
+        searchInput.focus();
+      } else {
+        searchQuery = ''; searchInput.value = '';
+        searchHits = []; searchHitCursor = -1;
+        applySearchHighlights(); updateSearchCount();
+      }
+    });
+
+    searchGoBtn.addEventListener('click', doSearch);
+    searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    searchPrevBtn.addEventListener('click', () => searchNav(-1));
+    searchNextBtn.addEventListener('click', () => searchNav(+1));
+
+    audio.addEventListener('play',  () => setSearchEnabled(false));
+    audio.addEventListener('pause', () => setSearchEnabled(true));
+    audio.addEventListener('ended', () => setSearchEnabled(true));
 
     // ── Prev / next subtitle ──
     function prevSub() {
