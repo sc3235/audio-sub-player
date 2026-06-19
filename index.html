@@ -2211,7 +2211,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
           if (d < bestDist) { bestDist = d; best = i; }
         }
         searchHitCursor = best;
-        jumpToSub(searchHits[searchHitCursor]);
+        setActiveSub(searchHits[searchHitCursor]);
       } else {
         searchHitCursor = -1;
       }
@@ -2223,7 +2223,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
       if (!searchHits.length || !audio.paused) return;
       searchHitCursor = (searchHitCursor + dir + searchHits.length) % searchHits.length;
       updateSearchCount();
-      jumpToSub(searchHits[searchHitCursor]);
+      setActiveSub(searchHits[searchHitCursor]);
     }
 
     function setSearchEnabled(enabled) {
