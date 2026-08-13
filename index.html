@@ -2382,9 +2382,9 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
     }
 
     function adjustSpeed(delta) {
-      const speed = Math.round(Math.max(0.5, Math.min(2.0, audio.playbackRate + delta)) * 4) / 4;
+      const speed = Math.round(Math.max(0.5, Math.min(2.0, audio.playbackRate + delta)) * 10) / 10;
       audio.playbackRate = speed;
-      document.getElementById('speed-val').textContent = speed.toFixed(2).replace(/\.?0+$/, '') + '×';
+      document.getElementById('speed-val').textContent = speed.toFixed(1) + '×';
       patchEpisode({ speed });
     }
 
@@ -2484,7 +2484,7 @@ my-show-ep2,My Show,Episode 2,https://…/ep2.mp3,https://…/ep2.srt</pre>
 
     function syncSpeedDisplay() {
       const s = audio.playbackRate;
-      document.getElementById('speed-val').textContent = s.toFixed(2).replace(/\.?0+$/, '') + '×';
+      document.getElementById('speed-val').textContent = s.toFixed(1) + '×';
     }
 
     window.addEventListener('pagehide', () => { saveLastPosition(); });
